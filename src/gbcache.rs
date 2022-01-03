@@ -11,10 +11,11 @@ use tokio::time::{sleep, Duration};
 
 pub type Result<T> = std::result::Result<T, CacheError>;
 
+const THROTTLE: Duration = Duration::from_nanos(1);
+
 #[derive(Debug)]
 pub struct GreenBlueCache<K, V> {
-    caches: [RwLock<HashMap<K, V>>; 2],
-    readers: [Arc<()>; 2],
+    caches: [Arc<RwLock<HashMap<K, V>>>; 2],
     current: RwLock<usize>,
     pending: RwLock<Vec<(K, V)>>,
 }
@@ -39,12 +40,8 @@ impl<K, V> Default for GreenBlueCache<K, V> {
     fn default() -> Self {
         Self {
             caches: [
-                RwLock::new(HashMap::new()),
-                RwLock::new(HashMap::new()),
-            ],
-            readers: [
-                Arc::new(()),
-                Arc::new(()),
+                Arc::new(RwLock::new(HashMap::new())),
+                Arc::new(RwLock::new(HashMap::new())),
             ],
             current: RwLock::new(0),
             pending: RwLock::new(Vec::new()),
@@ -62,19 +59,21 @@ where
         // println!("** put {}: {}", &key, &value);
         let i = self.current.read().await;
         let mut pending = self.pending.write().await;
-        let mut cache = self.caches[1 - *i].write().await;
+        let rc = self.caches[1 - *i].clone();
+        let mut cache = rc.write().await;
         pending.push((key.clone(), value.clone()));
         cache.insert(key, value);
+        sleep(THROTTLE).await;
         Ok(())
     }
 
     pub async fn get(&self, key: &K) -> Option<V> {
         let i = *self.current.read().await;
-        let rc = self.readers[i].clone();
-        let cache = self.caches[i].read().await;
+        let rc = self.caches[i].clone();
+        let cache = rc.read().await;
         // println!("** get: current {}, readers {:?}", &key, Arc::strong_count(&rc));
         let result = cache.get(key).map(|v| v.clone());
-        drop(rc); // Ensures rc lives until here
+        // drop(rc); // Ensures rc lives until here
         result
     }
 
@@ -89,16 +88,17 @@ where
         // From now on new readers will use the new cache
 
         // Wait for readers on the old map to finish
-        println!("** flush: wait readers rc={:?}", Arc::strong_count(&self.readers[i]));
-        while Arc::strong_count(&self.readers[i]) > 1 {
-            sleep(Duration::from_millis(1)).await;
+        let rc = self.caches[i].clone();
+        println!("** flush: wait readers rc={:?}", Arc::strong_count(&self.caches[i]));
+        while Arc::strong_count(&self.caches[i]) > 2 {
+            sleep(THROTTLE).await;
         }
-        //assert_eq!(Arc::strong_count(&self.readers[i]), 1);
+        assert_eq!(Arc::strong_count(&self.caches[i]), 2);
         println!("** flush: DONE wait readers");
         // TODO
 
         // Insert pending items in inactive cache
-        let mut cache = self.caches[i].write().await;
+        let mut cache = rc.write().await;
         for (k, v) in pending.iter() {
             cache.insert(k.clone(), v.clone());
         }
@@ -110,9 +110,9 @@ where
     pub async fn status(&self) {
         println!("Green: {}_items {}_readers // Blue: {}_items {}_readers // Pending: {} Current: {}",
             self.caches[0].read().await.len(),
-            Arc::strong_count(&self.readers[0]),
+            Arc::strong_count(&self.caches[0]),
             self.caches[1].read().await.len(),
-            Arc::strong_count(&self.readers[1]),
+            Arc::strong_count(&self.caches[1]),
             self.pending.read().await.len(),
             *self.current.read().await,
         );

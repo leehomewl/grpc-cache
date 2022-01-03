@@ -3,8 +3,9 @@ extern crate lazy_static;
 
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
-use std::sync::{Arc, RwLock};
 use std::time::Instant;
+use rand::Rng;
+use rand::prelude::ThreadRng;
 use tokio;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
@@ -28,16 +29,19 @@ lazy_static! {
     static ref SERVICE: Service = Service::default();
 }
 
-#[tokio::main(worker_threads=100)]
+thread_local! {
+    static RNG: RefCell<ThreadRng> = RefCell::new(rand::thread_rng());
+}
+
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let t0 = tokio::spawn(async {
         writer(&SERVICE.cache).await
     });
 
-    sleep(Duration::from_millis(10)).await;
 
-    let ts: Vec<JoinHandle<()>> = (0..100).into_iter()
+    let ts: Vec<JoinHandle<()>> = (0..10).into_iter()
         .map(|i| tokio::spawn(async move {
             reader(&SERVICE.cache, i).await;
         }))
@@ -46,7 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for t in ts {
         t.await?;
     };
+
     t0.await?;
+    //sleep(Duration::from_millis(1000)).await;
 
     Ok(())
 }
@@ -70,12 +76,16 @@ async fn writer(cache: &GreenBlueCache<i32, i32>) -> gbcache::Result<()> {
 }
 
 async fn reader(cache: &GreenBlueCache<i32, i32>, reader: usize) -> gbcache::Result<()> {
-    for i in 1..=1_000_000 {
-        let k = i % 100_000 + 1;
+    let mut start = Instant::now();
+    for i in 1..=100_000_000 {
+        let k = RNG.with(
+            |rng| rng.borrow_mut().gen_range(1..=100_000)
+        );
         let v = cache.get(&k).await;
 
-        if i % 10_000 == 0 { // } || v.is_none() {
-            println!("Reader {} i: {} Got {}:{:?}", reader, i, k, v);
+        if i % 100_000 == 0 { // } || v.is_none() {
+            println!("Reader {} i: {} lat: {:?} Got {}:{:?}", reader, i, start.elapsed(), k, v);
+            start = Instant::now();
         }
     }
 
