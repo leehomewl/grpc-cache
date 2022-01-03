@@ -13,6 +13,8 @@ use tokio::time::{sleep, Duration};
 mod gbcache;
 use gbcache::GreenBlueCache;
 
+const THROTTLE: Duration = Duration::from_nanos(1);
+
 struct Service {
     cache: GreenBlueCache<i32, i32>,
 }
@@ -59,17 +61,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn writer(cache: &GreenBlueCache<i32, i32>) -> gbcache::Result<()> {
     for i in 1..=100_000 {
-        cache.put(i, 100 * i).await?;
+        cache.put(i, 100 * i)?;
+        sleep(THROTTLE).await;
 
-        if i % 1000 == 0 {
-             cache.status().await;
-             cache.flush().await?;
-             cache.status().await;
+        if i % 999 == 0 {
+            cache.status().await;
+            cache.flush()?;
+            cache.status().await;
         }
     }
 
     cache.status().await;
-    cache.flush().await?;
+    cache.flush()?;
     cache.status().await;
 
     Ok(())
@@ -77,13 +80,13 @@ async fn writer(cache: &GreenBlueCache<i32, i32>) -> gbcache::Result<()> {
 
 async fn reader(cache: &GreenBlueCache<i32, i32>, reader: usize) -> gbcache::Result<()> {
     let mut start = Instant::now();
-    for i in 1..=100_000_000 {
+    for i in 1..=50_000_000 {
         let k = RNG.with(
             |rng| rng.borrow_mut().gen_range(1..=100_000)
         );
-        let v = cache.get(&k).await;
+        let v = cache.get(&k);
 
-        if i % 100_000 == 0 { // } || v.is_none() {
+        if i % 1_000_000 == 0 { // } || v.is_none() {
             println!("Reader {} i: {} lat: {:?} Got {}:{:?}", reader, i, start.elapsed(), k, v);
             start = Instant::now();
         }
