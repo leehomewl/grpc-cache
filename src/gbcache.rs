@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
-pub type Result<T> = std::result::Result<T, CacheError>;
+type Result<T> = std::result::Result<T, CacheError>;
 
 #[derive(Debug)]
 pub struct GreenBlueCache<K, V> {
@@ -18,7 +18,7 @@ pub struct GreenBlueCache<K, V> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum CacheError {
+pub enum CacheError {
     NotFound,
     CannotSwitch,
     CannotWrite,
@@ -67,7 +67,6 @@ where
     }
 
     pub fn flush(&mut self) -> Result<()> {
-        println!("** flush");
         if let Ok(_lock) = self.write_lock.lock() {
             // Switch reading pointer
             let updating = self.reading;
@@ -76,7 +75,7 @@ where
 
             // Wait for readers on the old map to finish
             let active_readers = Arc::strong_count(&self.readers);
-            println!("** switch: readers {:?}", active_readers);
+            println!("** flush: readers rc{:?}", active_readers);
             assert_eq!(active_readers, 1);
             // TODO
 
@@ -85,6 +84,8 @@ where
                 self.caches[updating].insert(k.clone(), v.clone());
             }
             self.pending.clear();
+
+            assert_eq!(self.caches[0].len(), self.caches[1].len());
 
             Ok(())
         } else {
@@ -114,12 +115,13 @@ mod tests {
         assert_eq!(cache.get(&1), Ok(100));
 
         assert_eq!(cache.put(2, 200), Ok(()));
+        assert_eq!(cache.put(3, 300), Ok(()));
         println!("{:?}", cache);
         assert_eq!(cache.flush(), Ok(()));
         println!("{:?}", cache);
 
+        assert_eq!(cache.get(&3), Ok(300));        
         assert_eq!(cache.get(&2), Ok(200));        
-
         assert_eq!(cache.get(&1), Ok(100));
 
     }
