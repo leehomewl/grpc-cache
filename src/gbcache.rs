@@ -57,17 +57,21 @@ where
 
     pub async fn put(&self, key: K, value: V) -> Result<()> {
         // println!("** put {}: {}", &key, &value);
-        let i = self.current.read().await;
+        let i = 1 - *self.current.read().await;
         let mut pending = self.pending.write().await;
-        let rc = self.caches[1 - *i].clone();
+        let rc = self.caches[i].clone();
         let mut cache = rc.write().await;
         pending.push((key.clone(), value.clone()));
         cache.insert(key, value);
-        sleep(THROTTLE).await;
+        // sleep(THROTTLE).await;
         Ok(())
     }
 
     pub async fn get(&self, key: &K) -> Option<V> {
+        // let current = self.current.read().await;
+        // let i = *current;
+        // drop(current);
+
         let i = *self.current.read().await;
         let rc = self.caches[i].clone();
         let cache = rc.read().await;
