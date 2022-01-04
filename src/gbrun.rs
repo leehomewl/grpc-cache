@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::time::Instant;
 use rand::Rng;
@@ -13,11 +12,11 @@ use tokio::time::{sleep, Duration};
 mod gbcache;
 use gbcache::GreenBlueCache;
 
-const READ_THROTTLE: Duration = Duration::from_nanos(0);
-const WRITE_THROTTLE: Duration = Duration::from_nanos(0);
-const READERS: usize = 10;
-const READ_BATCH: i32 = 10000;
-const WRITE_BATCH: i32 = 1000;
+mod settings;
+use settings::*;
+
+mod metrics;
+use metrics::Metrics;
 
 struct Service {
     cache: GreenBlueCache<i32, i32>,
@@ -43,8 +42,10 @@ thread_local! {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache).await
+        writer(&SERVICE.cache, Duration::ZERO).await
     });
+
+    t0.await?;
 
     let ts: Vec<JoinHandle<()>> = (0..READERS).into_iter()
         .map(|i| tokio::spawn(async move {
@@ -52,11 +53,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .collect();
 
-    t0.await?;
-
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(2000)).await;
     let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache).await
+        writer(&SERVICE.cache, WRITE_THROTTLE).await
     });
 
     for t in ts {
@@ -68,10 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn writer(cache: &GreenBlueCache<i32, i32>) -> gbcache::Result<()> {
-    for i in 1..=1_000_000 {
+async fn writer(cache: &GreenBlueCache<i32, i32>, throttle: Duration) -> gbcache::Result<()> {
+    for i in 1..=WRITE_ITERS {
         cache.put(i, 100 * i).await?;
-        if !WRITE_THROTTLE.is_zero() {
+        if !throttle.is_zero() {
             sleep(WRITE_THROTTLE).await;
         }
         if i % WRITE_BATCH == 0 {
@@ -89,18 +88,19 @@ async fn writer(cache: &GreenBlueCache<i32, i32>) -> gbcache::Result<()> {
 }
 
 async fn reader(cache: &GreenBlueCache<i32, i32>, reader: usize) -> gbcache::Result<()> {
-    let mut start = Instant::now();
-    for i in 1..=3_000_000 {
+    let mut metrics = Metrics::default();
+    for i in 1..=READ_ITERS {
+        let start = Instant::now();
         let k = RNG.with(
-            |rng| rng.borrow_mut().gen_range(1..=1_000_000)
+            |rng| rng.borrow_mut().gen_range(1..=WRITE_ITERS)
         );
         let v = cache.get(&k).await;
+        metrics.put(1, start.elapsed(), READ_TIMEOUT);
         if !READ_THROTTLE.is_zero() {
             sleep(READ_THROTTLE).await;
         }
         if i % READ_BATCH == 0 { // } || v.is_none() {
-            println!("Reader {} i: {} lat: {:?} Got {}:{:?}", reader, i, start.elapsed() / READ_BATCH as u32, k, v);
-            start = Instant::now();
+            println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, k, v, metrics);
         }
     }
 
