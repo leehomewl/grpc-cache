@@ -19,3 +19,4 @@ tokio = {version = "*", features = ["macros", "sync", "time", "rt-multi-thread"]
 # prost = "*"
 lazy_static = "*"
 rand = "*"
+dashmap = { version = "*", features = ["raw-api"] }

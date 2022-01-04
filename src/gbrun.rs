@@ -69,20 +69,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn writer(cache: &GreenBlueCache<i32, i32>, throttle: Duration) -> gbcache::Result<()> {
     for i in 1..=WRITE_ITERS {
-        cache.put(i, 100 * i).await?;
-        if !throttle.is_zero() {
-            sleep(WRITE_THROTTLE).await;
-        }
+        cache.put(i, 100 * i)?;
         if i % WRITE_BATCH == 0 {
-             cache.status().await;
-             cache.flush().await?;
-             cache.status().await;
+             cache.flush()?;
+             if !throttle.is_zero() {
+                sleep(throttle).await;
+            }
         }
     }
 
-    cache.status().await;
-    cache.flush().await?;
-    cache.status().await;
+    cache.flush()?;
+    cache.status();
 
     Ok(())
 }
@@ -94,12 +91,13 @@ async fn reader(cache: &GreenBlueCache<i32, i32>, reader: usize) -> gbcache::Res
         let k = RNG.with(
             |rng| rng.borrow_mut().gen_range(1..=WRITE_ITERS)
         );
-        let v = cache.get(&k).await;
+        let v = cache.get(&k);
         metrics.put(1, start.elapsed(), READ_TIMEOUT);
         if !READ_THROTTLE.is_zero() {
             sleep(READ_THROTTLE).await;
         }
         if i % READ_BATCH == 0 { // } || v.is_none() {
+            cache.status();
             println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, k, v, metrics);
         }
     }

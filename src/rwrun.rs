@@ -42,7 +42,7 @@ thread_local! {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache).await
+        writer(&SERVICE.cache, Duration::ZERO).await
     });
     t0.await?;
 
@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     sleep(Duration::from_millis(2000)).await;
     let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache).await
+        writer(&SERVICE.cache, WRITE_THROTTLE).await
     });
 
     for t in ts {
@@ -66,18 +66,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn writer(cache: &RwCache<i32, i32>) -> rwcache::Result<()> {
+async fn writer(cache: &RwCache<i32, i32>, throttle: Duration) -> rwcache::Result<()> {
     for i in 1..=WRITE_ITERS {
-        cache.put(i, 100 * i).await?;
-        if !WRITE_THROTTLE.is_zero() {
-            sleep(WRITE_THROTTLE).await;
-        }
-        if i % WRITE_BATCH == 0 {
-             cache.status().await;
+        cache.put(i, 100 * i)?;
+        if !throttle.is_zero() {
+            sleep(throttle).await;
         }
     }
 
-    cache.status().await;
+    cache.status();
 
     Ok(())
 }
@@ -89,13 +86,14 @@ async fn reader(cache: &RwCache<i32, i32>, reader: usize) -> rwcache::Result<()>
         let k = RNG.with(
             |rng| rng.borrow_mut().gen_range(1..=WRITE_ITERS)
         );
-        let v = cache.get(&k).await;
+        let v = cache.get(&k);
         metrics.put(1, start.elapsed(), READ_TIMEOUT);
-        if !READ_THROTTLE.is_zero() {
-            sleep(READ_THROTTLE).await;
-        }
         if i % READ_BATCH == 0 { // } || v.is_none() {
+            cache.status();
             println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, k, v, metrics);
+            if !READ_THROTTLE.is_zero() {
+                sleep(READ_THROTTLE).await;
+            }
         }
     }
 

@@ -2,7 +2,7 @@ use std::borrow::{BorrowMut, Borrow};
 /// Locking Single Cache
 /// 
 /// 
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -14,8 +14,9 @@ pub type Result<T> = std::result::Result<T, CacheError>;
 const THROTTLE: Duration = Duration::from_nanos(1);
 
 #[derive(Debug)]
-pub struct RwCache<K, V> {
-    cache: Arc<RwLock<HashMap<K, V>>>,
+pub struct RwCache<K, V> 
+where K: Eq + Hash + Sized {
+    cache: Arc<DashMap<K, V>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,10 +35,11 @@ impl std::fmt::Display for CacheError {
 
 impl std::error::Error for CacheError {}
 
-impl<K, V> Default for RwCache<K, V> {
-    fn default() -> Self {
+impl<K, V> Default for RwCache<K, V>
+where K: Eq + Hash + Sized {
+        fn default() -> Self {
         Self {
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(DashMap::new()),
         }
     }
 }
@@ -48,27 +50,25 @@ where
     K: Eq + Hash + Clone + Display,
     V: Clone + Display {
 
-    pub async fn put(&self, key: K, value: V) -> Result<()> {
+    pub fn put(&self, key: K, value: V) -> Result<()> {
         // println!("** put {}: {}", &key, &value);
-        let rc = self.cache.clone();
-        let mut cache = rc.write().await;
+        let cache = &self.cache; //.clone();
         cache.insert(key, value);
-        // sleep(THROTTLE).await;
         Ok(())
     }
 
-    pub async fn get(&self, key: &K) -> Option<V> {
-        let rc = self.cache.clone();
-        let cache = rc.read().await;
+    pub fn get(&self, key: &K) -> Option<V> {
+        let cache = self.cache.clone();
         // println!("** get: current {}, readers {:?}", &key, Arc::strong_count(&rc));
         let result = cache.get(key).map(|v| v.clone());
         result
     }
 
-    pub async fn status(&self) {
-        println!("Cache: {}_items {}_readers",
-            self.cache.read().await.len(),
+    pub fn status(&self) {
+        println!("************ Cache: {}_items {}_readers {}_shards",
+            self.cache.len(),
             Arc::strong_count(&self.cache),
+            self.cache.shards().len()
         );
     }
 

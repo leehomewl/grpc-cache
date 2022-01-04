@@ -10,6 +10,7 @@ pub struct Metrics {
     all_duration: Duration,
     all_avg: Duration,
     timeouts: usize,
+    success: f64,
 }
 
 // impl Default for Metrics {
@@ -36,5 +37,6 @@ impl Metrics {
         if self.batch_avg > timeout {
             self.timeouts += self.batch_count as usize;
         }
+        self.success = 100.0 * (1.0 - (self.timeouts as f64 / self.all_count as f64));
     }
 }
