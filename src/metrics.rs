@@ -2,13 +2,13 @@ use tokio::time::Duration;
 
 #[derive(Default, Debug)]
 pub struct Metrics {
-    batch_count: u32,
+    batch_count: usize,
     batch_duration: Duration,
     batch_avg: Duration,
-    batch_max: Duration,
     all_count: usize,
     all_duration: Duration,
     all_avg: Duration,
+    all_max: Duration,
     timeouts: usize,
     success: f64,
 }
@@ -24,17 +24,17 @@ pub struct Metrics {
 // }
 
 impl Metrics {
-    pub fn put(&mut self, requests: u32, duration: Duration, timeout: Duration) {
+    pub fn put(&mut self, requests: usize, duration: Duration, timeout: Duration) {
         self.batch_count = requests;
         self.batch_duration = duration;
-        self.batch_avg = self.batch_duration / self.batch_count;
-        if self.batch_avg > self.batch_max {
-            self.batch_max = self.batch_avg;
+        self.batch_avg = self.batch_duration / self.batch_count as u32;
+        if self.batch_duration > self.all_max {
+            self.all_max = self.batch_duration;
         }
         self.all_count += requests as usize;
         self.all_duration += duration;
         self.all_avg = self.all_duration / self.all_count as u32;
-        if self.batch_avg > timeout {
+        if self.batch_duration > timeout {
             self.timeouts += self.batch_count as usize;
         }
         self.success = 100.0 * (1.0 - (self.timeouts as f64 / self.all_count as f64));

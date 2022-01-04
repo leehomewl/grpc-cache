@@ -2,6 +2,7 @@
 extern crate lazy_static;
 
 use std::cell::RefCell;
+use std::ops::Add;
 use std::time::Instant;
 use rand::Rng;
 use rand::prelude::ThreadRng;
@@ -78,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn writer(cache: &GreenBlueCache<i32, i32>, throttle: Duration) -> gbcache::Result<()> {
     for i in 1..=WRITE_ITERS {
-        cache.put(i, 100 * i)?;
+        cache.put(i, 100 * i as i32)?;
         if !throttle.is_zero() {
             sleep(throttle).await;
         }
@@ -97,17 +98,21 @@ async fn reader(cache: &GreenBlueCache<i32, i32>, reader: usize) -> gbcache::Res
     let mut metrics = Metrics::default();
     for i in 1..=READ_ITERS {
         let start = Instant::now();
-        let k = RNG.with(
-            |rng| rng.borrow_mut().gen_range(1..=WRITE_ITERS)
-        );
-        let v = cache.get(&k);
-        metrics.put(1, start.elapsed(), READ_TIMEOUT);
+
+        let keys: Vec<i32> = (0..BATCH_SIZE).into_iter()
+            .map(|_| RNG.with(
+                |rng| rng.borrow_mut().gen_range(1i32..=WRITE_ITERS as i32)
+            ))
+            .collect();
+        
+        let vs = cache.get(keys.as_slice());
+        metrics.put(BATCH_SIZE, start.elapsed(), READ_TIMEOUT);
         if !READ_THROTTLE.is_zero() {
             sleep(READ_THROTTLE).await;
         }
-        if i % READ_BATCH == 0 { // } || v.is_none() {
+        if i % READ_REPORT == 0 { // } || v.is_none() {
             cache.status();
-            println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, k, v, metrics);
+            println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, keys[0], vs[0], metrics);
         }
     }
 

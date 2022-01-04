@@ -67,17 +67,12 @@ where
         Ok(())
     }
 
-    pub fn get(&self, key: &K) -> Option<V> {
-        // let current = self.current.read().await;
-        // let i = *current;
-        // drop(current);
-
+    pub fn get(&self, keys: &[K]) -> Vec<Option<V>> {
         let i = *self.current.read().unwrap();
         let cache = self.caches[i].clone();
-        // println!("** get: current {}, readers {:?}", &key, Arc::strong_count(&rc));
-        let result = cache.get(key).map(|v| v.clone());
-        // drop(rc); // Ensures rc lives until here
-        result
+        keys.iter().map(
+            |k| cache.get(k).map(|v| v.clone())
+        ).collect()
     }
 
     pub fn flush(&self) -> Result<()> {
