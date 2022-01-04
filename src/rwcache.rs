@@ -6,7 +6,6 @@ use dashmap::DashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
 pub type Result<T> = std::result::Result<T, CacheError>;
@@ -52,7 +51,7 @@ where
 
     pub fn put(&self, key: K, value: V) -> Result<()> {
         // println!("** put {}: {}", &key, &value);
-        let cache = &self.cache; //.clone();
+        let cache = &self.cache.clone();
         cache.insert(key, value);
         Ok(())
     }

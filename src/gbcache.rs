@@ -1,4 +1,5 @@
 use std::borrow::{BorrowMut, Borrow};
+use std::sync::Mutex;
 /// Green-Blue Cache
 /// 
 /// 
@@ -19,6 +20,7 @@ where K: Eq + Hash + Sized {
     caches: [Arc<DashMap<K, V>>; 2],
     current: RwLock<usize>,
     pending: RwLock<Vec<(K, V)>>,
+    nowrite_lock: Mutex<()>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,25 +39,22 @@ impl std::fmt::Display for CacheError {
 
 impl std::error::Error for CacheError {}
 
-impl<K, V> Default for GreenBlueCache<K, V> 
-where K: Eq + Hash + Sized {
-    fn default() -> Self {
-        Self {
-            caches: [
-                Arc::new(DashMap::new()),
-                Arc::new(DashMap::new()),
-            ],
-            current: std::sync::RwLock::new(0),
-            pending: RwLock::new(Vec::new()),
-        }
-    }
-}
-
-
 impl<K, V> GreenBlueCache<K, V>
 where 
     K: Eq + Hash + Sized + Clone + Display,
     V: Clone + Display {
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            caches: [
+                Arc::new(DashMap::with_capacity(capacity)),
+                Arc::new(DashMap::with_capacity(capacity)),
+            ],
+            current: std::sync::RwLock::new(0),
+            pending: RwLock::new(Vec::with_capacity(capacity)),
+            nowrite_lock: Mutex::new(()),
+        }
+    }
 
     pub fn put(&self, key: K, value: V) -> Result<()> {
         // println!("** put {}: {}", &key, &value);
@@ -82,18 +81,16 @@ where
     }
 
     pub fn flush(&self) -> Result<()> {
-        let mut pending = self.pending.write().unwrap();
+        let nowrite_lock = self.nowrite_lock.try_lock().map_err(|_| CacheError::CannotSwitch)?;
         let i = {
             let mut current = self.current.write().unwrap();
             let i = *current;
             *current = 1 - i;
             i
         };
-        // From now on new readers will use the new cache
 
-        // Wait for readers on the old map to finish
-        //println!("** flush: wait readers rc={:?}", Arc::strong_count(&self.caches[i]));
         while Arc::strong_count(&self.caches[i]) > 1 {
+            println!("** flush: wait readers rc={:?}", Arc::strong_count(&self.caches[i]));
             std::thread::sleep(THROTTLE);
         }
         // assert_eq!(Arc::strong_count(&self.caches[i]), 1);
@@ -101,20 +98,28 @@ where
         // TODO
 
         // Insert pending items in inactive cache
+        let pending = self.pending.read().unwrap();
         let cache = self.caches[i].clone();
+        println!("*** {:?} Flushing...", std::thread::current().id());
         for (k, v) in pending.iter() {
              cache.insert(k.clone(), v.clone());
         }
+        drop(pending);
+        let mut pending = self.pending.write().unwrap();
         pending.clear();
-
+        println!("*** Flush DONE.");
+        drop(nowrite_lock);
         Ok(())
     }
 
     pub fn status(&self) {
-        println!("************ Green: {}_items {}_readers // Blue: {}_items {}_readers // Pending: {} Current: {}",
+        println!("Thread {:?} ************ Green: {}_items {}_shards {}_readers // Blue: {}_items {}_shards {}_readers // Pending: {} Current: {}",
+            std::thread::current().id(),
             self.caches[0].len(),
+            self.caches[0].shards().len(),
             Arc::strong_count(&self.caches[0]),
             self.caches[1].len(),
+            self.caches[1].shards().len(),
             Arc::strong_count(&self.caches[1]),
             self.pending.read().unwrap().len(),
             *self.current.read().unwrap(),
@@ -122,34 +127,3 @@ where
     }
 
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::GreenBlueCache;
-
-//     #[test]
-//     fn test_write_read() {
-
-//         let mut cache = GreenBlueCache::default();
-//         println!("{:?}", cache);
-
-//         assert_eq!(cache.put(1, 100), Ok(()));
-//         println!("{:?}", cache);
-//         assert_eq!(cache.flush(), Ok(()));
-//         println!("{:?}", cache);
-
-
-//         assert_eq!(cache.get(&1), Some(100));
-
-//         assert_eq!(cache.put(2, 200), Ok(()));
-//         assert_eq!(cache.put(3, 300), Ok(()));
-//         println!("{:?}", cache);
-//         assert_eq!(cache.flush(), Ok(()));
-//         println!("{:?}", cache);
-
-//         assert_eq!(cache.get(&3), Some(300));        
-//         assert_eq!(cache.get(&2), Some(200));        
-//         assert_eq!(cache.get(&1), Some(100));
-
-//     }
-// }

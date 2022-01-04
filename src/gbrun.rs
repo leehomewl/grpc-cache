@@ -25,7 +25,7 @@ struct Service {
 impl Default for Service {
     fn default() -> Self {
         Self {
-            cache: GreenBlueCache::default(),
+            cache: GreenBlueCache::with_capacity(WRITE_ITERS as usize),
         }
     }
 }
@@ -41,20 +41,28 @@ thread_local! {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache, Duration::ZERO).await
-    });
+    // let t0 = tokio::spawn(async {
+    //     writer(&SERVICE.cache, Duration::ZERO).await
+    // });
 
-    t0.await?;
+    // t0.await?;
 
+    println!(">>>>>>> SPAWN READERS....");
     let ts: Vec<JoinHandle<()>> = (0..READERS).into_iter()
         .map(|i| tokio::spawn(async move {
             reader(&SERVICE.cache, i).await;
         }))
         .collect();
 
-    sleep(Duration::from_millis(2000)).await;
+    println!(">>>>>>> SPAWN WRITER1....");
     let t0 = tokio::spawn(async {
+        writer(&SERVICE.cache, WRITE_THROTTLE).await
+    });
+
+    sleep(Duration::from_millis(20000)).await;
+
+    println!(">>>>>>> SPAWN WRITER2....");
+    let t1 = tokio::spawn(async {
         writer(&SERVICE.cache, WRITE_THROTTLE).await
     });
 
@@ -63,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     t0.await?;
+    t1.await?;
 
     Ok(())
 }
@@ -70,11 +79,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn writer(cache: &GreenBlueCache<i32, i32>, throttle: Duration) -> gbcache::Result<()> {
     for i in 1..=WRITE_ITERS {
         cache.put(i, 100 * i)?;
-        if i % WRITE_BATCH == 0 {
+        if !throttle.is_zero() {
+            sleep(throttle).await;
+        }
+        if i % WRITE_FLUSH == 0 {
              cache.flush()?;
-             if !throttle.is_zero() {
-                sleep(throttle).await;
-            }
         }
     }
 
