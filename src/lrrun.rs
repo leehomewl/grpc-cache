@@ -60,16 +60,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let write_ref = Arc::new(Mutex::new(write));
 
     let keep_alive = write_ref.clone();
-    // let t0 = tokio::spawn(async move { writer(&mut write, Duration::ZERO).await });
 
-    // t0.await?;
+    let w = write_ref.clone();
+    let t0 = tokio::spawn(async { writer(w, Duration::ZERO) });
 
-    // let r = read.clone();
-    // let tr = tokio::spawn(async move {
-    //     reader(r, 999).await
-    // });
-
-    // tr.await?;
+    t0.await?;
 
     println!(">>>>>>> SPAWN READERS....");
     let ts: Vec<JoinHandle<()>> = (0..READERS)
@@ -81,6 +76,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             })
         })
         .collect();
+
+    sleep(Duration::from_secs(5)).await;
 
     let w = write_ref.clone();
     let t0 = tokio::spawn(async { writer(w, Duration::ZERO) });
@@ -109,6 +106,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 fn writer(cache: Arc<Mutex<CacheWriter<i32, i32>>>, throttle: Duration) -> Result<()> {
     let cache = cache.clone();
     let mut cache = cache.lock().unwrap();
+    println!(">>>>>>>>>>>>>>>>>>>>>> WRITING INITIATED!!");
     for i in 1..=WRITE_ITERS {
         cache.put(i, 100 * i as i32);
         // if !throttle.is_zero() {
