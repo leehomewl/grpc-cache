@@ -88,7 +88,7 @@ async fn reader(cache: &RwCache<i32, i32>, reader: usize) -> rwcache::Result<()>
         );
         let v = cache.get(&k);
         metrics.put(1, start.elapsed(), READ_TIMEOUT);
-        if i % READ_BATCH == 0 { // } || v.is_none() {
+        if i % READ_REPORT == 0 { // } || v.is_none() {
             cache.status();
             println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, k, v, metrics);
             if !READ_THROTTLE.is_zero() {
