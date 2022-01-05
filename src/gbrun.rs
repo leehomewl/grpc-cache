@@ -20,7 +20,7 @@ mod metrics;
 use metrics::Metrics;
 
 struct Service {
-    cache: GreenBlueCache<i32, i32>,
+    cache: GreenBlueCache<i32, String>,
 }
 
 impl Default for Service {
@@ -75,9 +75,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn writer(cache: &GreenBlueCache<i32, i32>, throttle: Duration) -> gbcache::Result<()> {
+async fn writer(cache: &GreenBlueCache<i32, String>, throttle: Duration) -> gbcache::Result<()> {
     for i in 1..=WRITE_ITERS {
-        cache.put(i, 100 * i as i32)?;
+        cache.put(i, format!("@{}", 100 * i as i32))?;
         if !throttle.is_zero() {
             sleep(throttle).await;
         }
@@ -92,7 +92,7 @@ async fn writer(cache: &GreenBlueCache<i32, i32>, throttle: Duration) -> gbcache
     Ok(())
 }
 
-async fn reader(cache: &GreenBlueCache<i32, i32>, reader: usize) -> gbcache::Result<()> {
+async fn reader(cache: &GreenBlueCache<i32, String>, reader: usize) -> gbcache::Result<()> {
     let mut metrics = Metrics::default();
     for i in 1..=READ_ITERS {
         let start = Instant::now();

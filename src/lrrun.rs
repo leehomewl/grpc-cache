@@ -1,11 +1,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use left_right::{ReadHandle, WriteHandle};
 use rand::prelude::ThreadRng;
 use rand::Rng;
 use std::cell::RefCell;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio;
 use tokio::task::JoinHandle;
@@ -56,7 +55,7 @@ thread_local! {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let (mut write, read) = lrcache::new::<i32, i32>();
+    let (mut write, read) = lrcache::new::<String, String>();
     let write_ref = Arc::new(Mutex::new(write));
 
     let keep_alive = write_ref.clone();
@@ -103,12 +102,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn writer(cache: Arc<Mutex<CacheWriter<i32, i32>>>, throttle: Duration) -> Result<()> {
+fn writer(cache: Arc<Mutex<CacheWriter<String, String>>>, throttle: Duration) -> Result<()> {
     let cache = cache.clone();
     let mut cache = cache.lock().unwrap();
     println!(">>>>>>>>>>>>>>>>>>>>>> WRITING INITIATED!!");
     for i in 1..=WRITE_ITERS {
-        cache.put(i, 100 * i as i32);
+        cache.put(format!("{}", i), format!("@{0}", 100 * i as i32));
         // if !throttle.is_zero() {
         //     sleep(throttle).await;
         // }
@@ -131,14 +130,15 @@ fn writer(cache: Arc<Mutex<CacheWriter<i32, i32>>>, throttle: Duration) -> Resul
     Ok(())
 }
 
-async fn reader(cache: CacheReader<i32, i32>, reader: usize) -> Result<()> {
+async fn reader(cache: CacheReader<String, String>, reader: usize) -> Result<()> {
     let mut metrics = Metrics::default();
     for i in 1..=READ_ITERS {
         let start = Instant::now();
 
-        let keys: Vec<i32> = (0..BATCH_SIZE)
+        let keys: Vec<String> = (0..BATCH_SIZE)
             .into_iter()
             .map(|_| RNG.with(|rng| rng.borrow_mut().gen_range(1i32..=WRITE_ITERS as i32)))
+            .map(|x| format!("{}", x))
             .collect();
 
         let vs = cache.get(keys.as_slice());
@@ -150,7 +150,7 @@ async fn reader(cache: CacheReader<i32, i32>, reader: usize) -> Result<()> {
             // } || v.is_none() {
             // cache.status();
             println!(
-                "Reader {} i: {} Got {}:{:?} {:?}",
+                "Reader {} i: {} Got {:?}:{:?} {:?}",
                 reader, i, keys[0], vs[0], metrics
             );
         }
