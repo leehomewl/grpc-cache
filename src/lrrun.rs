@@ -1,15 +1,15 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::time::Instant;
-use left_right::{WriteHandle, ReadHandle};
-use rand::Rng;
+use left_right::{ReadHandle, WriteHandle};
 use rand::prelude::ThreadRng;
+use rand::Rng;
+use std::time::Instant;
 use tokio;
 use tokio::time::{sleep, Duration};
 
 mod lrcache;
-use lrcache::{Cache, Result, AddOpp};
+use lrcache::*;
 
 mod settings;
 use settings::*;
@@ -17,39 +17,18 @@ use settings::*;
 mod metrics;
 use metrics::Metrics;
 
-
-struct CacheWriter(WriteHandle<Cache<i32, i32>, AddOpp<i32, i32>>);
-impl CacheWriter {
-    pub fn insert(&mut self, k: i32, v: i32) {
-        self.0.append(AddOpp(k, v));
-    }
-
-    pub fn flush(&mut self) {
-        self.0.publish();
-    }
-}
-
-struct CacheReader(ReadHandle<Cache<i32, i32>>);
-impl CacheReader {
-    pub fn get(&self, key: &i32) -> Option<i32> {
-        self.0.enter().map(|guard| guard.get(key)).unwrap_or(None)
-    }
-}
-
 fn main() {
-    let (write, read) = left_right::new::<Cache<i32, i32>, AddOpp<i32, i32>>();
-    let mut w = CacheWriter(write);
-    let r = CacheReader(read);
+    let (mut w, r) = lrcache::new::<i32, i32>();
 
     println!("None={:?}", r.get(&1));
-    w.insert(1, 100);
+    w.put(1, 100);
     println!("None={:?}", r.get(&1));
 
     w.flush();
     println!("Some(100)={:?}", r.get(&1));
 
-    w.insert(2, 200);
-    w.insert(3, 300);
+    w.put(2, 200);
+    w.put(3, 300);
     println!("None={:?}", r.get(&2));
     println!("None={:?}", r.get(&3));
 
@@ -57,7 +36,6 @@ fn main() {
     println!("Some(100)={:?}", r.get(&1));
     println!("Some(200)={:?}", r.get(&2));
     println!("Some(300)={:?}", r.get(&3));
-
 }
 
 // struct Service {
@@ -145,7 +123,7 @@ fn main() {
 //                 |rng| rng.borrow_mut().gen_range(1i32..=WRITE_ITERS as i32)
 //             ))
 //             .collect();
-        
+
 //         let vs = cache.get(keys.as_slice());
 //         metrics.put(BATCH_SIZE, start.elapsed(), READ_TIMEOUT);
 //         if !READ_THROTTLE.is_zero() {

@@ -1,10 +1,10 @@
 #[macro_use]
 extern crate lazy_static;
 
+use rand::prelude::ThreadRng;
+use rand::Rng;
 use std::cell::RefCell;
 use std::time::Instant;
-use rand::Rng;
-use rand::prelude::ThreadRng;
 use tokio;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
@@ -40,26 +40,24 @@ thread_local! {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
-    let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache, Duration::ZERO).await
-    });
+    let t0 = tokio::spawn(async { writer(&SERVICE.cache, Duration::ZERO).await });
     t0.await?;
 
-    let ts: Vec<JoinHandle<()>> = (0..READERS).into_iter()
-        .map(|i| tokio::spawn(async move {
-            reader(&SERVICE.cache, i).await;
-        }))
+    let ts: Vec<JoinHandle<()>> = (0..READERS)
+        .into_iter()
+        .map(|i| {
+            tokio::spawn(async move {
+                reader(&SERVICE.cache, i).await;
+            })
+        })
         .collect();
 
     sleep(Duration::from_millis(2000)).await;
-    let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache, WRITE_THROTTLE).await
-    });
+    let t0 = tokio::spawn(async { writer(&SERVICE.cache, WRITE_THROTTLE).await });
 
     for t in ts {
         t.await?;
-    };
+    }
 
     t0.await?;
 
@@ -83,12 +81,11 @@ async fn reader(cache: &RwCache<i32, i32>, reader: usize) -> rwcache::Result<()>
     let mut metrics = Metrics::default();
     for i in 1..=READ_ITERS {
         let start = Instant::now();
-        let k = RNG.with(
-            |rng| rng.borrow_mut().gen_range(1..=WRITE_ITERS)
-        );
+        let k = RNG.with(|rng| rng.borrow_mut().gen_range(1..=WRITE_ITERS));
         let v = cache.get(&k);
         metrics.put(1, start.elapsed(), READ_TIMEOUT);
-        if i % READ_REPORT == 0 { // } || v.is_none() {
+        if i % READ_REPORT == 0 {
+            // } || v.is_none() {
             cache.status();
             println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, k, v, metrics);
             if !READ_THROTTLE.is_zero() {

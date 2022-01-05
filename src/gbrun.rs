@@ -1,11 +1,11 @@
 #[macro_use]
 extern crate lazy_static;
 
+use rand::prelude::ThreadRng;
+use rand::Rng;
 use std::cell::RefCell;
 use std::ops::Add;
 use std::time::Instant;
-use rand::Rng;
-use rand::prelude::ThreadRng;
 use tokio;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
@@ -41,7 +41,6 @@ thread_local! {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     // let t0 = tokio::spawn(async {
     //     writer(&SERVICE.cache, Duration::ZERO).await
     // });
@@ -49,27 +48,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // t0.await?;
 
     println!(">>>>>>> SPAWN READERS....");
-    let ts: Vec<JoinHandle<()>> = (0..READERS).into_iter()
-        .map(|i| tokio::spawn(async move {
-            reader(&SERVICE.cache, i).await;
-        }))
+    let ts: Vec<JoinHandle<()>> = (0..READERS)
+        .into_iter()
+        .map(|i| {
+            tokio::spawn(async move {
+                reader(&SERVICE.cache, i).await;
+            })
+        })
         .collect();
 
     println!(">>>>>>> SPAWN WRITER1....");
-    let t0 = tokio::spawn(async {
-        writer(&SERVICE.cache, WRITE_THROTTLE).await
-    });
+    let t0 = tokio::spawn(async { writer(&SERVICE.cache, WRITE_THROTTLE).await });
 
     sleep(Duration::from_millis(20000)).await;
 
     println!(">>>>>>> SPAWN WRITER2....");
-    let t1 = tokio::spawn(async {
-        writer(&SERVICE.cache, WRITE_THROTTLE).await
-    });
+    let t1 = tokio::spawn(async { writer(&SERVICE.cache, WRITE_THROTTLE).await });
 
     for t in ts {
         t.await?;
-    };
+    }
 
     t0.await?;
     t1.await?;
@@ -84,7 +82,7 @@ async fn writer(cache: &GreenBlueCache<i32, i32>, throttle: Duration) -> gbcache
             sleep(throttle).await;
         }
         if i % WRITE_FLUSH == 0 {
-             cache.flush()?;
+            cache.flush()?;
         }
     }
 
@@ -99,20 +97,23 @@ async fn reader(cache: &GreenBlueCache<i32, i32>, reader: usize) -> gbcache::Res
     for i in 1..=READ_ITERS {
         let start = Instant::now();
 
-        let keys: Vec<i32> = (0..BATCH_SIZE).into_iter()
-            .map(|_| RNG.with(
-                |rng| rng.borrow_mut().gen_range(1i32..=WRITE_ITERS as i32)
-            ))
+        let keys: Vec<i32> = (0..BATCH_SIZE)
+            .into_iter()
+            .map(|_| RNG.with(|rng| rng.borrow_mut().gen_range(1i32..=WRITE_ITERS as i32)))
             .collect();
-        
+
         let vs = cache.get(keys.as_slice());
         metrics.put(BATCH_SIZE, start.elapsed(), READ_TIMEOUT);
         if !READ_THROTTLE.is_zero() {
             sleep(READ_THROTTLE).await;
         }
-        if i % READ_REPORT == 0 { // } || v.is_none() {
+        if i % READ_REPORT == 0 {
+            // } || v.is_none() {
             cache.status();
-            println!("Reader {} i: {} Got {}:{:?} {:?}", reader, i, keys[0], vs[0], metrics);
+            println!(
+                "Reader {} i: {} Got {}:{:?} {:?}",
+                reader, i, keys[0], vs[0], metrics
+            );
         }
     }
 

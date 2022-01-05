@@ -1,12 +1,12 @@
-use std::borrow::{BorrowMut, Borrow};
-use std::sync::Mutex;
 /// Green-Blue Cache
-/// 
-/// 
+///
+///
 use dashmap::DashMap;
+use std::borrow::{Borrow, BorrowMut};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::RwLock;
 use tokio::time::Duration;
 
@@ -16,7 +16,9 @@ const THROTTLE: Duration = Duration::from_nanos(1);
 
 #[derive(Debug)]
 pub struct GreenBlueCache<K, V>
-where K: Eq + Hash + Sized {
+where
+    K: Eq + Hash + Sized,
+{
     caches: [Arc<DashMap<K, V>>; 2],
     current: RwLock<usize>,
     pending: RwLock<Vec<(K, V)>>,
@@ -31,19 +33,22 @@ pub enum CacheError {
 }
 
 impl std::fmt::Display for CacheError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-         formatter.write_str(&format!("{:?}", self))?;
-         Ok(())
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::result::Result<(), std::fmt::Error> {
+        formatter.write_str(&format!("{:?}", self))?;
+        Ok(())
     }
 }
 
 impl std::error::Error for CacheError {}
 
 impl<K, V> GreenBlueCache<K, V>
-where 
+where
     K: Eq + Hash + Sized + Clone + Display,
-    V: Clone + Display {
-
+    V: Clone + Display,
+{
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             caches: [
@@ -70,13 +75,16 @@ where
     pub fn get(&self, keys: &[K]) -> Vec<Option<V>> {
         let i = *self.current.read().unwrap();
         let cache = self.caches[i].clone();
-        keys.iter().map(
-            |k| cache.get(k).map(|v| v.clone())
-        ).collect()
+        keys.iter()
+            .map(|k| cache.get(k).map(|v| v.clone()))
+            .collect()
     }
 
     pub fn flush(&self) -> Result<()> {
-        let nowrite_lock = self.nowrite_lock.try_lock().map_err(|_| CacheError::CannotSwitch)?;
+        let nowrite_lock = self
+            .nowrite_lock
+            .try_lock()
+            .map_err(|_| CacheError::CannotSwitch)?;
         let i = {
             let mut current = self.current.write().unwrap();
             let i = *current;
@@ -85,7 +93,10 @@ where
         };
 
         while Arc::strong_count(&self.caches[i]) > 1 {
-            println!("** flush: wait readers rc={:?}", Arc::strong_count(&self.caches[i]));
+            println!(
+                "** flush: wait readers rc={:?}",
+                Arc::strong_count(&self.caches[i])
+            );
             std::thread::sleep(THROTTLE);
         }
         // assert_eq!(Arc::strong_count(&self.caches[i]), 1);
@@ -97,7 +108,7 @@ where
         let cache = self.caches[i].clone();
         println!("*** {:?} Flushing...", std::thread::current().id());
         for (k, v) in pending.iter() {
-             cache.insert(k.clone(), v.clone());
+            cache.insert(k.clone(), v.clone());
         }
         drop(pending);
         let mut pending = self.pending.write().unwrap();
@@ -120,5 +131,4 @@ where
             *self.current.read().unwrap(),
         );
     }
-
 }
