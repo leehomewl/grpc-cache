@@ -57,20 +57,23 @@ thread_local! {
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let (mut write, read) = lrcache::new::<i32, i32>();
+    let write_ref = Arc::new(Mutex::new(write));
 
+    let keep_alive = write_ref.clone();
     // let t0 = tokio::spawn(async move { writer(&mut write, Duration::ZERO).await });
 
     // t0.await?;
-    
+
     // let r = read.clone();
-    // let tr = tokio::spawn(async move { 
-    //     reader(r, 999).await 
+    // let tr = tokio::spawn(async move {
+    //     reader(r, 999).await
     // });
 
     // tr.await?;
 
     println!(">>>>>>> SPAWN READERS....");
-    let ts: Vec<JoinHandle<()>> = (0..READERS).into_iter()
+    let ts: Vec<JoinHandle<()>> = (0..READERS)
+        .into_iter()
         .map(|i| {
             let cache = read.clone();
             tokio::spawn(async move {
@@ -79,12 +82,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
 
-    let t0 = tokio::spawn(async move {
-        writer(&mut write, Duration::ZERO).await
-    });
+    let w = write_ref.clone();
+    let t0 = tokio::spawn(async { writer(w, Duration::ZERO) });
 
     t0.await?;
-    
+
     // sleep(Duration::from_millis(20000)).await;
 
     // println!(">>>>>>> SPAWN WRITER2....");
@@ -92,28 +94,40 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     //     writer(&service.write.clone(), WRITE_THROTTLE).await
     // });
 
-    // for t in ts {
-    //     t.await?;
-    // };
+    for t in ts {
+        t.await?;
+    }
 
     // t0.await?;
     // t1.await?;
 
+    drop(keep_alive);
+
     Ok(())
 }
 
-async fn writer(cache: &mut CacheWriter<i32, i32>, throttle: Duration) -> Result<()> {
+fn writer(cache: Arc<Mutex<CacheWriter<i32, i32>>>, throttle: Duration) -> Result<()> {
+    let cache = cache.clone();
+    let mut cache = cache.lock().unwrap();
     for i in 1..=WRITE_ITERS {
         cache.put(i, 100 * i as i32);
-        if !throttle.is_zero() {
-            sleep(throttle).await;
-        }
+        // if !throttle.is_zero() {
+        //     sleep(throttle).await;
+        // }
         if i % WRITE_FLUSH == 0 {
+            if i % 1_000_000 == 0 {
+                println!("Flushing...");
+            }
             cache.flush();
+            if i % 1_000_000 == 0 {
+                println!("Flush DONE.");
+            }
         }
     }
 
+    println!("Flushing...");
     cache.flush();
+    println!("Flush DONE.");
     // cache.status();
 
     Ok(())

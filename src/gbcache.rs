@@ -92,13 +92,13 @@ where
             i
         };
 
-        while Arc::strong_count(&self.caches[i]) > 1 {
-            println!(
-                "** flush: wait readers rc={:?}",
-                Arc::strong_count(&self.caches[i])
-            );
-            std::thread::sleep(THROTTLE);
-        }
+        // while Arc::strong_count(&self.caches[i]) > 1 {
+        //     println!(
+        //         "** flush: wait readers rc={:?}",
+        //         Arc::strong_count(&self.caches[i])
+        //     );
+        //     std::thread::sleep(THROTTLE);
+        // }
         // assert_eq!(Arc::strong_count(&self.caches[i]), 1);
         //println!("** flush: DONE wait readers");
         // TODO
