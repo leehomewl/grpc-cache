@@ -7,7 +7,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use tokio::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CacheError>;
@@ -55,7 +55,7 @@ where
                 Arc::new(DashMap::with_capacity(capacity)),
                 Arc::new(DashMap::with_capacity(capacity)),
             ],
-            current: std::sync::RwLock::new(0),
+            current: RwLock::new(0),
             pending: RwLock::new(Vec::with_capacity(capacity)),
             nowrite_lock: Mutex::new(()),
         }
@@ -63,8 +63,8 @@ where
 
     pub fn put(&self, key: K, value: V) -> Result<()> {
         // println!("** put {}: {}", &key, &value);
-        let i = 1 - *self.current.read().unwrap();
-        let mut pending = self.pending.write().unwrap();
+        let i = 1 - *self.current.read();
+        let mut pending = self.pending.write();
         let cache = self.caches[i].clone();
         pending.push((key.clone(), value.clone()));
         cache.insert(key, value);
@@ -73,7 +73,7 @@ where
     }
 
     pub fn get(&self, keys: &[K]) -> Vec<Option<V>> {
-        let i = *self.current.read().unwrap();
+        let i = *self.current.read();
         let cache = self.caches[i].clone();
         keys.iter()
             .map(|k| cache.get(k).map(|v| v.clone()))
@@ -86,7 +86,7 @@ where
             .try_lock()
             .map_err(|_| CacheError::CannotSwitch)?;
         let i = {
-            let mut current = self.current.write().unwrap();
+            let mut current = self.current.write();
             let i = *current;
             *current = 1 - i;
             i
@@ -104,14 +104,14 @@ where
         // TODO
 
         // Insert pending items in inactive cache
-        let pending = self.pending.read().unwrap();
+        let pending = self.pending.read();
         let cache = self.caches[i].clone();
         println!("*** {:?} Flushing...", std::thread::current().id());
         for (k, v) in pending.iter() {
             cache.insert(k.clone(), v.clone());
         }
         drop(pending);
-        let mut pending = self.pending.write().unwrap();
+        let mut pending = self.pending.write();
         pending.clear();
         println!("*** Flush DONE.");
         drop(nowrite_lock);
@@ -127,8 +127,8 @@ where
             self.caches[1].len(),
             self.caches[1].shards().len(),
             Arc::strong_count(&self.caches[1]),
-            self.pending.read().unwrap().len(),
-            *self.current.read().unwrap(),
+            self.pending.read().len(),
+            *self.current.read(),
         );
     }
 }

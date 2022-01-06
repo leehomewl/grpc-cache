@@ -24,3 +24,4 @@ lazy_static = "*"
 rand = "*"
 dashmap = { version = "*", features = ["raw-api"] }
 left-right = { version = "*" }
+parking_lot = "*"
