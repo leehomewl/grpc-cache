@@ -4,7 +4,6 @@ extern crate lazy_static;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 use std::cell::RefCell;
-use std::ops::Add;
 use std::time::Instant;
 use tokio;
 use tokio::task::JoinHandle;
@@ -20,7 +19,7 @@ mod metrics;
 use metrics::Metrics;
 
 struct Service {
-    cache: GreenBlueCache<i32, String>,
+    cache: GreenBlueCache<String, String>,
 }
 
 impl Default for Service {
@@ -40,12 +39,11 @@ thread_local! {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // let t0 = tokio::spawn(async {
-    //     writer(&SERVICE.cache, Duration::ZERO).await
-    // });
-
-    // t0.await?;
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let t0 = tokio::spawn(
+        async { writer(&SERVICE.cache, Duration::ZERO).await }
+    );
+    t0.await?;
 
     println!(">>>>>>> SPAWN READERS....");
     let ts: Vec<JoinHandle<()>> = (0..READERS)
@@ -57,27 +55,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
 
-    println!(">>>>>>> SPAWN WRITER1....");
-    let t0 = tokio::spawn(async { writer(&SERVICE.cache, WRITE_THROTTLE).await });
+    println!(">>>>>>> START WRITE SCHEDULE....");
+    for _ in 0..3 {
+        sleep(Duration::from_secs(5)).await;
 
-    sleep(Duration::from_millis(20000)).await;
+        let t0 = tokio::spawn(async { 
+            writer(&SERVICE.cache, WRITE_THROTTLE).await
+        });
 
-    println!(">>>>>>> SPAWN WRITER2....");
-    let t1 = tokio::spawn(async { writer(&SERVICE.cache, WRITE_THROTTLE).await });
+        t0.await?;
+    }
 
     for t in ts {
         t.await?;
     }
 
-    t0.await?;
-    t1.await?;
-
     Ok(())
 }
 
-async fn writer(cache: &GreenBlueCache<i32, String>, throttle: Duration) -> gbcache::Result<()> {
+
+async fn writer(cache: &GreenBlueCache<String, String>, throttle: Duration) -> gbcache::Result<()> {
+    println!(">>>>>>>>>>>>>>>>>>>>>> WRITING INITIATED!!");
     for i in 1..=WRITE_ITERS {
-        cache.put(i, format!("@{}", 100 * i as i32))?;
+        cache.put(format!("{}", i), format!("@{}", 100 * i as i32))?;
         if !throttle.is_zero() {
             sleep(throttle).await;
         }
@@ -88,18 +88,21 @@ async fn writer(cache: &GreenBlueCache<i32, String>, throttle: Duration) -> gbca
 
     cache.flush()?;
     cache.status();
+    println!("<<<<<<<<<<<<<<<<<<<<< WRITE DONE!!");
 
     Ok(())
 }
 
-async fn reader(cache: &GreenBlueCache<i32, String>, reader: usize) -> gbcache::Result<()> {
+async fn reader(cache: &GreenBlueCache<String, String>, reader: usize) -> gbcache::Result<()> {
     let mut metrics = Metrics::default();
     for i in 1..=READ_ITERS {
         let start = Instant::now();
 
-        let keys: Vec<i32> = (0..BATCH_SIZE)
+        let keys: Vec<String> = (0..BATCH_SIZE)
             .into_iter()
-            .map(|_| RNG.with(|rng| rng.borrow_mut().gen_range(1i32..=WRITE_ITERS as i32)))
+            .map(|_| RNG.with(|rng| format!(
+                "{}", rng.borrow_mut().gen_range(1i32..=WRITE_ITERS as i32)))
+            )
             .collect();
 
         let vs = cache.get(keys.as_slice());

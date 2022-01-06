@@ -61,34 +61,35 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let keep_alive = write_ref.clone();
 
     let w = write_ref.clone();
-    let t0 = tokio::spawn(async { writer(w, Duration::ZERO) });
+    let t0 = tokio::spawn( async move {
+        let w = w.clone();
+        writer(&w, Duration::ZERO).await
+    });
 
     t0.await?;
 
     println!(">>>>>>> SPAWN READERS....");
-    let ts: Vec<JoinHandle<()>> = (0..READERS)
+    let ts: Vec<JoinHandle<Result<()>>> = (0..READERS)
         .into_iter()
         .map(|i| {
             let cache = read.clone();
-            tokio::spawn(async move {
-                reader(cache, i).await;
+            tokio::spawn(async move { 
+                reader(cache, i).await
             })
         })
         .collect();
 
-    sleep(Duration::from_secs(5)).await;
+    // println!(">>>>>>> START WRITE SCHEDULE....");
+    // for i in 0..3 {
+    //     sleep(Duration::from_secs(5)).await;
 
-    let w = write_ref.clone();
-    let t0 = tokio::spawn(async { writer(w, Duration::ZERO) });
+    //     let w = write_ref.clone();
+    //     let t0 = tokio::spawn(async {
+    //         writer(&w, Duration::ZERO).await
+    //     });
 
-    t0.await?;
-
-    // sleep(Duration::from_millis(20000)).await;
-
-    // println!(">>>>>>> SPAWN WRITER2....");
-    // let t1 = tokio::spawn(async {
-    //     writer(&service.write.clone(), WRITE_THROTTLE).await
-    // });
+    //     t0.await?;
+    // }
 
     for t in ts {
         t.await?;
@@ -102,30 +103,28 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn writer(cache: Arc<Mutex<CacheWriter<String, String>>>, throttle: Duration) -> Result<()> {
-    let cache = cache.clone();
+async fn writer(cache: &Arc<Mutex<CacheWriter<String, String>>>, throttle: Duration) -> Result<()> {
+    // let cache = cache.clone();
     let mut cache = cache.lock().unwrap();
-    println!(">>>>>>>>>>>>>>>>>>>>>> WRITING INITIATED!!");
+    println!("{:?} >>>>>>>>>>>>>>>>>>>>>> WRITING INITIATED!!", std::thread::current().id());
     for i in 1..=WRITE_ITERS {
         cache.put(format!("{}", i), format!("@{0}", 100 * i as i32));
         // if !throttle.is_zero() {
         //     sleep(throttle).await;
         // }
         if i % WRITE_FLUSH == 0 {
-            if i % 1_000_000 == 0 {
-                println!("Flushing...");
-            }
+            println!("{:?} Flushing...", std::thread::current().id());
             cache.flush();
-            if i % 1_000_000 == 0 {
-                println!("Flush DONE.");
-            }
+            println!("{:?} Flush DONE.", std::thread::current().id());
         }
     }
 
-    println!("Flushing...");
+    println!("{:?} Flushing...", std::thread::current().id());
     cache.flush();
-    println!("Flush DONE.");
+    println!("{:?} Flush DONE.", std::thread::current().id());
     // cache.status();
+
+    println!("{:?} <<<<<<<<<<<<<<<<<<<<< WRITE DONE!!", std::thread::current().id());
 
     Ok(())
 }
@@ -147,11 +146,9 @@ async fn reader(cache: CacheReader<String, String>, reader: usize) -> Result<()>
             sleep(READ_THROTTLE).await;
         }
         if i % READ_REPORT == 0 {
-            // } || v.is_none() {
-            // cache.status();
             println!(
-                "Reader {} i: {} Got {:?}:{:?} {:?}",
-                reader, i, keys[0], vs[0], metrics
+                "{:?} Reader {} i: {} Got {:?}:{:?} {:?}",
+                std::thread::current().id(), reader, i, keys[0], vs[0], metrics
             );
         }
     }
